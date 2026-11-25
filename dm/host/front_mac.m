@@ -19,6 +19,7 @@
 #include "dm_input.h"
 #include "front.h"
 #include "hle.h"
+#include "../gfx/nvn/nvn_fstep.h"
 #include "pad_slots.h"
 #include "input_map.h"
 #include "haptics_apple.h"
@@ -1992,6 +1993,34 @@ static NSArray<NSURL *> *found_cheat_files(NSString *build) {
 @end
 static void cheats_follow_game(void) { [g_cheats_panel followGame]; }
 
+// Performance › Frame Rate: 60 or 30 fps at once, in a game the host steps through its frame step state page (loader.c dm_fps_target_live); disabled in other games, which take
+// the frame rate at the next start from the settings window. The choice holds until the game quits: the settings window's saved choice is the next start's
+@interface DmFpsMenu : NSObject <NSMenuDelegate>
+@end
+@implementation DmFpsMenu
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    int now = dm_fps_target_live();
+    for (NSMenuItem *it in menu.itemArray) {
+        if (it.tag) { it.enabled = now != 0 && (it.tag != 40 || nvn_fstep_t120(dm_fps_state)); it.state = it.tag == now ? NSControlStateValueOn : NSControlStateValueOff; }
+        else if (it.representedObject) it.title = now ? @"Applies until the game quits" : @"Set in the settings window before the game starts";
+    }
+}
+- (void)pick:(NSMenuItem *)it {
+    if (dm_fps_target_set((int)it.tag)) LOG("front end: frame rate %ld fps (Frame Rate menu)", (long)it.tag);
+}
+@end
+static NSMenu *front_fps_menu(void) {
+    static DmFpsMenu *d; d = [DmFpsMenu new];
+    NSMenu *pm = [[NSMenu alloc] initWithTitle:@"Performance"], *fm = [[NSMenu alloc] initWithTitle:@"Frame Rate"];
+    fm.delegate = d; fm.autoenablesItems = NO;   // the delegate sets enabled and the ticks on every open
+    for (int i = 0, rates[] = {60, 40, 30}; i < 3; i++) { int fps = rates[i]; NSMenuItem *it = [fm addItemWithTitle:[NSString stringWithFormat:@"%d fps", fps] action:@selector(pick:) keyEquivalent:@""]; it.target = d; it.tag = fps; }
+    [fm addItem:NSMenuItem.separatorItem];
+    NSMenuItem *note = [fm addItemWithTitle:@"" action:nil keyEquivalent:@""]; note.enabled = NO; note.representedObject = @"note";
+    [d menuNeedsUpdate:fm];
+    [[pm addItemWithTitle:@"Frame Rate" action:nil keyEquivalent:@""] setSubmenu:fm];
+    return pm;
+}
+
 void front_run(void (*guest)(void)) {
     // Keep the latency-critical activity token alive for the host process, including windowless play.
     static id<NSObject> game_activity;
@@ -2073,6 +2102,7 @@ void front_run(void (*guest)(void)) {
             dispatch_async(dispatch_get_main_queue(), ^{ [g_cheats_menu showPanel:nil]; });
         [[bar addItemWithTitle:@"Window" action:nil keyEquivalent:@""] setSubmenu:wm];
         [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
+        [[bar addItemWithTitle:@"Performance" action:nil keyEquivalent:@""] setSubmenu:front_fps_menu()];
         NSApp.mainMenu = bar;
         static DmWinDelegate *wd; wd = [DmWinDelegate new]; win.delegate = wd;
         const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 2: around the notch (DmGameWindow); 0, the settings window's Window, or unset: a window

@@ -1957,4 +1957,3 @@ Most service calls can be found before they crash, before the first boot or the 
 - **Cause:** AppKit's default fullscreen auto-hides the menu bar; on that setup macOS brings it back for the active app's screen. Seen on macOS 27 with two screens, the game on the main one.
 - **Fix:** the window delegate (`DmWinDelegate`, `front_mac.m`) answers `window:willUseFullScreenPresentationOptions:` with `FullScreen | HideDock | HideMenuBar`, so fullscreen hides both for good. The delegate is set for every game window, so fullscreen entered later (⌃⌘F, the green button) gets it too. ⌘Q and ⌃⌘F still work with the bar hidden.
 - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md) (M5, macOS 27.0.1, a 27-inch main screen and the built-in one); every game on the Mac (general).
-

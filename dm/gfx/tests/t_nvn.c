@@ -373,6 +373,15 @@ int main(void) {
       EXPECT("stub state takes precedence over env",60,fps_present_cap());
       *(uint32_t *)(state+4)=1;
       EXPECT("the state page's movie flag is the host's copy, not read for the cap",60,fps_present_cap());
+      // the frame rate changed while the game runs (loader.c dm_fps_target_set): every reader takes the page's new target at its next call
+      EXPECT("live change 60 → 30: the page takes it",60,nvn_fstep_target_change(state,30));
+      EXPECT("live 30: present cap",30,fps_present_cap());
+      EXPECT("live 30: two vsyncs a frame",2,present_itv(&w));
+      EXPECT("live 30: display-link target",30,nvn_game_fps());
+      EXPECT("live change 30 → 60: the page takes it",30,nvn_fstep_target_change(state,60));
+      EXPECT("live 60: present cap",60,fps_present_cap());
+      EXPECT("live 60: one vsync a frame",1,present_itv(&w));
+      EXPECT("live 60: display-link target",60,nvn_game_fps());
       // a page in ticks of 1/120 s (+0x38 120, a FRAME_STEP_120 stub; headless: no window): 40 fps is 3 ticks, 25 ms; 60 and 30 are 2 and 4 ticks
       uint32_t unit=120;memcpy(state+FSTEP_UNIT_OFF,&unit,4);nvn_present_config(120,0);
       cap=40;memcpy(state,&cap,4);

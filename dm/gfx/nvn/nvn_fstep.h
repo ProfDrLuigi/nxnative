@@ -332,3 +332,12 @@ static inline int nvn_fstep_cap(float target, int movie_hz, int thermal) {
     if (movie_hz) return movie_hz >= 50 && !thermal ? 60 : 30;
     return target <= 30 || thermal ? 30 : target <= 40 ? 40 : 60;
 }
+// A target change while the game runs: 30 or 60, and only while the host steps the game (target above 0). A target of 0 hands the stubs' paths back to the game's own interval
+// logic, which is not switched in or out mid-run. Returns the previous target (30 or 60), or 0 when refused and the page is left as it was
+static inline int nvn_fstep_target_change(uint8_t *page, int fps) {
+    if (!page || (fps != 30 && fps != 40 && fps != 60) || (fps == 40 && !nvn_fstep_t120(page))) return 0;
+    float was = nvn_fstep_target(page);
+    if (!(was > 0)) return 0;
+    nvn_fstep_target_put(page, (float)fps);
+    return was <= 30 ? 30 : was <= 40 ? 40 : 60;
+}
