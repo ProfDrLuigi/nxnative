@@ -564,3 +564,7 @@ The integration preserves the tested [shared input profiles and live settings](.
 ### Mac spatial and float audio refresh
 
 PR [#3062](https://github.com/seedds/nxnative/pull/3062) is integrated with current main's [device-routing and renderer safeguards](../../../docs/reference/audio.md#spatial-audio-integration-with-current-device-routing). Spatial output is optional in the launcher; the selected device decides the available surround path. DeviceSink processing stays float until the device conversion. Runtime listening on the refreshed app remains pending.
+
+### App Metal cache cleanup
+
+PR [#2691](https://github.com/seedds/nxnative/pull/2691) restricts old-cache cleanup to real directories from the startup snapshot, rechecking their type before deletion. Files, symlinks and newly created cache directories are retained. The 12 cache-lifecycle checks pass.
