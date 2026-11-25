@@ -560,3 +560,7 @@ The integration includes [native Switch 2 HDR](../../../docs/reference/rendering
 ### Refreshed Mac launcher
 
 The integration preserves the tested [shared input profiles and live settings](../../../docs/reference/services.md#shared-mac-input-profiles-and-live-settings), including radial dead zone, sensitivity, button mapping and separate app/game versions. The refreshed release retains app version 1.0.3 and game version 1.1.1. Runtime validation is pending the new shader library.
+
+### Mac spatial and float audio refresh
+
+PR [#3062](https://github.com/seedds/nxnative/pull/3062) is integrated with current main's [device-routing and renderer safeguards](../../../docs/reference/audio.md#spatial-audio-integration-with-current-device-routing). Spatial output is optional in the launcher; the selected device decides the available surround path. DeviceSink processing stays float until the device conversion. Runtime listening on the refreshed app remains pending.
