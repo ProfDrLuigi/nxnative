@@ -552,3 +552,7 @@ Its 37 kernels that correct samples, NDSR's network among them, gave about 0.25 
 ### Additional Mac prewarm coverage
 
 The integrated prewarm list includes the compatible rows from [PR #3195](https://github.com/seedds/nxnative/pull/3195) and [PR #2977](https://github.com/seedds/nxnative/pull/2977), deduplicated against main and each other. Shader references were checked against this profile. These are recorded pipeline demands; runtime performance and offline archive generation still require validation in the rebuilt app.
+
+### HDR display support
+
+The integration includes [native Switch 2 HDR](../../../docs/reference/rendering.md#a-switch-2-games-own-hdr-on-a-screen-with-hdr-on) and [auto-HDR](../../../docs/reference/rendering.md#auto-hdr-on-a-screen-with-hdr-on) from [PR #3183](https://github.com/seedds/nxnative/pull/3183), including its [PR #3155](https://github.com/seedds/nxnative/pull/3155) dependency. Local rebuilt-app validation is pending.
