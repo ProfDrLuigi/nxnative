@@ -72,10 +72,10 @@ class LauncherSettingsTests(unittest.TestCase):
         s = build(BOTW, 'nvn')['DM_SHOW_FPS']
         self.assertEqual((s['on'], s['off']), ('1', '0'))
 
-    def test_iphone_switches_only_on_the_iphone(self):   # the frame-rate counter and touch feedback are the iOS front end's (front_ios.m, DmGamepad.m)
+    def test_iphone_switches_only_on_the_iphone(self):   # touch feedback, the picture fit and the touch controls are the iOS front end's (DmGamepad.m, front_ios.m)
         ios, mac = build(BOTW, 'nvn'), build(BOTW, 'nvn', 'mac')
         self.assertEqual(build(BOTW, 'nvn', 'ios').keys(), ios.keys())   # ios when unset
-        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_ROTATION'})
+        self.assertEqual(set(ios) - set(mac), {'DM_TOUCH_HAPTICS', 'DM_ROTATION'})
         self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2', 'DM_NVN_ANISO'})   # Mac-only Display mode, Switch 2 controllers, and NVN texture filtering
         self.assertNotIn('DM_NVN_ANISO', build('0100535012974000', 'vulkan', 'mac'))
@@ -90,6 +90,14 @@ class LauncherSettingsTests(unittest.TestCase):
         self.assertIn('0.15 s', s['note'])   # the system renderer's pre-roll is the setting's cost
         self.assertNotIn('DM_SPATIAL_AUDIO', build(oot, 'nvn', 'ios'))   # the spatial paths are the Mac host's
         self.assertNotIn('DM_SPATIAL_AUDIO', build(BOTW, 'nvn', 'mac'))   # no spatial_audio in its profile
+
+    def test_frame_rate_counter_on_both_platforms_with_the_builds_default(self):   # front_ios.m and front_mac.m both read DM_SHOW_FPS; build_ipa.sh / the NSP script pass the default
+        for platform in ('ios', 'mac'):
+            for built, default in (('1', '1'), ('YES', '1'), ('0', '0'), ('NO', '0'), (None, '0')):
+                with self.subTest(platform=platform, built=built), patch.dict(os.environ, {'DM_SHOW_FPS': built} if built else {}):
+                    if built is None: os.environ.pop('DM_SHOW_FPS', None)
+                    s = build(BOTW, 'nvn', platform)['DM_SHOW_FPS']
+                    self.assertEqual((s['kind'], s['section'], s['label'], s['on'], s['off'], s['default']), ('toggle', 'Game', 'Frame-rate counter', '1', '0', default))
 
     def test_defaults_follow_each_platform_host(self):
         # nvn_mtl.m pso4_on: Mac defaults on, iOS follows the profile. nvn_rec.h rec_on: iOS on, Mac off.

@@ -580,3 +580,7 @@ PR [#2837](https://github.com/seedds/nxnative/pull/2837) adds the Performance me
 ### Live upscaler choices
 
 PR [#2838](https://github.com/seedds/nxnative/pull/2838) adds live switching of presentation scaling and the game's named upscaler replacements. The Performance menu combines these choices with the existing live frame-rate menu. The settings window uses the same validated presentation setter. GPU crop and upscaler tests pass with Metal validation enabled, starting with both the game's own upscaler and MetalFX.
+
+### Presented-frame counter
+
+PR [#2839](https://github.com/seedds/nxnative/pull/2839) adds an optional Mac FPS counter based on drawable presentation callbacks, excluding discarded frames. The Performance menu retains live frame-rate and upscaler choices alongside the counter toggle. Its 12 timing/counting tests pass. The Metal HUD remains enabled for local runtime validation.
