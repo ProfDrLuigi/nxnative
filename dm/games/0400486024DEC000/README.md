@@ -568,3 +568,7 @@ PR [#3062](https://github.com/seedds/nxnative/pull/3062) is integrated with curr
 ### App Metal cache cleanup
 
 PR [#2691](https://github.com/seedds/nxnative/pull/2691) restricts old-cache cleanup to real directories from the startup snapshot, rechecking their type before deletion. Files, symlinks and newly created cache directories are retained. The 12 cache-lifecycle checks pass.
+
+### Mac fullscreen refresh
+
+PR [#2850](https://github.com/seedds/nxnative/pull/2850) [keeps the menu bar and Dock hidden](../../../docs/reference/services.md#mac-menu-bar-over-the-fullscreen-game) in native fullscreen. PR [#2979](https://github.com/seedds/nxnative/pull/2979) adds an optional fullscreen-around-the-notch mode and follows display docking changes. Current main's screen-settle guard is retained and cleared when the borderless panel enters. The live Settings window handles all three display modes. The 56 notch-follow state checks pass; interactive display-mode checks remain pending.

@@ -81,7 +81,7 @@ class LauncherSettingsTests(unittest.TestCase):
         self.assertNotIn('DM_NVN_ANISO', build('0100535012974000', 'vulkan', 'mac'))
         self.assertNotIn('DM_NVN_ANISO', build('010014E00DB56000', 'gl', 'mac'))
         s = mac['DM_FULLSCREEN']
-        self.assertEqual((s['kind'], s['default'], s['options'], s['level']), ('choice', '0', [['0', 'Window'], ['1', 'Fullscreen']], 'basic'))
+        self.assertEqual((s['kind'], s['default'], s['options'], s['level']), ('choice', '0', [['0', 'Window'], ['1', 'Fullscreen'], ['2', 'Fullscreen around the notch']], 'basic'))
 
     def test_spatial_audio_only_on_the_mac_for_a_game_that_mixes_surround(self):   # DM_SPATIAL_AUDIO (hle_audio.c, audio_route.h): the profile's spatial_audio key (Ocarina of Time), the Mac's outputs
         oot = '0400486024DEC000'

@@ -1950,3 +1950,11 @@ Most service calls can be found before they crash, before the first boot or the 
 - **Cause:** game launch settings alone do not describe a reusable physical-controller or keyboard layout.
 - **Fix:** the Mac launcher's Input tab stores named profiles under the user's nxnative controls directory. The host applies validated button maps and radial stick shaping to controller events; keyboard maps also support mouse bindings. Launch environment and env.txt overrides retain precedence. Settings opened with Command-comma can update supported controls, rumble strength/cutoff, fullscreen, late-frame holding and present upscaling while the game runs. The launcher reports other changes as applying at the next start. Rumble strength accepts up to 25 for games whose effects have very low amplitudes. App bundle releases are displayed separately from game display versions.
 - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md); ported from the user's tested Ocarina/Hotshot launcher. Controller parser tests, a macOS 26.6 launcher compile/link and the rebuilt host pass; interactive testing of the refreshed app remains pending its shader rebuild.
+
+### Mac menu bar over the fullscreen game
+
+- **Symptom:** in fullscreen, the menu bar shows at the top of the game's screen whenever the game is the active app (a click on it, a controller in use), and goes away when another app on another screen is active. The system setting is "In Full Screen Only".
+- **Cause:** AppKit's default fullscreen auto-hides the menu bar; on that setup macOS brings it back for the active app's screen. Seen on macOS 27 with two screens, the game on the main one.
+- **Fix:** the window delegate (`DmWinDelegate`, `front_mac.m`) answers `window:willUseFullScreenPresentationOptions:` with `FullScreen | HideDock | HideMenuBar`, so fullscreen hides both for good. The delegate is set for every game window, so fullscreen entered later (⌃⌘F, the green button) gets it too. ⌘Q and ⌃⌘F still work with the bar hidden.
+- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md) (M5, macOS 27.0.1, a 27-inch main screen and the built-in one); every game on the Mac (general).
+

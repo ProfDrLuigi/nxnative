@@ -246,7 +246,7 @@ Turn off **Show this window at launch** to start the game at once with your choi
 
 ### Display mode
 
-**Window** or **Fullscreen**: how the game's window opens. ⌃⌘F or the green button changes it while you play. In an `env.txt`: `DM_FULLSCREEN=1` or `0`.
+**Window**, **Fullscreen** or **Fullscreen around the notch**: how the game's window opens. ⌃⌘F or the green button changes it while you play. **Fullscreen around the notch** uses the whole screen of a MacBook with a notch, the strips beside the camera housing too, which hides the picture's top centre; a 16:9 picture is fitted in it, with bars at the sides. It stays on the current desktop instead of a Space of its own, and the menu bar does not come down when the pointer reaches the top; ⌘-Tab to another app puts that app in front as usual. On a screen without a notch, such as a Studio Display, it is the same as **Fullscreen**. A full screen game follows its screen: undock a MacBook from a Studio Display and the game goes around the notch, dock it (or close the lid) and it is a usual full screen on the other screen; a window stays a window. In an `env.txt`: `DM_FULLSCREEN=1`, `2` or `0`.
 
 ### Spatial Audio
 
@@ -297,7 +297,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under 
 | Render scale | `DM_RENDER_SCALE` | `0.5` to `1.0` (Hades II: to `3.0`) |
 | Console mode | `DM_OPMODE` | `1` docked, `0` handheld |
 | Game language | `DM_LANG` | a language code, such as `ja` |
-| Display mode (Mac) | `DM_FULLSCREEN` | `1` fullscreen, `0` a window |
+| Display mode (Mac) | `DM_FULLSCREEN` | `1` fullscreen, `2` fullscreen around the notch (`1` on a screen without one), `0` a window |
 | Spatial Audio (Mac) | `DM_SPATIAL_AUDIO` | `auto` the game's 5.1 on every output the Mac can render it for: macOS's Spatial Audio on headphones, virtual surround on a MacBook's speakers, as it is on six or more channels (default for a game that mixes surround), `0` stereo except on six or more channels |
 | Cloud saves folder (Mac) | `DM_SAVE_SYNC` | a folder; `icloud`: iCloud Drive › nxnative Saves; `0`: off |
 | Picture | `DM_PICTURE_FIT` | `fit` 16:9 with black bars, `fill` covers the screen (or Mac window), cropped |
