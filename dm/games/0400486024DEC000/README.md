@@ -576,3 +576,7 @@ PR [#2850](https://github.com/seedds/nxnative/pull/2850) [keeps the menu bar and
 ### Live frame-rate choice
 
 PR [#2837](https://github.com/seedds/nxnative/pull/2837) adds the Performance menu's live frame-rate choice. This integration retains current main's 40 fps tick ABI and display checks: 40 is selectable only with a FRAME_STEP_120 state page, and the existing 120 fps engine-limiter behavior is unchanged. The loader's live target reports 40 accurately. Frame-step (183), NVN (534), loader, HID and symbol tests pass; interactive menu use remains pending.
+
+### Live upscaler choices
+
+PR [#2838](https://github.com/seedds/nxnative/pull/2838) adds live switching of presentation scaling and the game's named upscaler replacements. The Performance menu combines these choices with the existing live frame-rate menu. The settings window uses the same validated presentation setter. GPU crop and upscaler tests pass with Metal validation enabled, starting with both the game's own upscaler and MetalFX.

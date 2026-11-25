@@ -332,6 +332,10 @@ bool dm_setting_live(const char *env, const char *value) {
     if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
     // Frame rate: at once in a game the host steps through its state page (loader.c dm_fps_target_live); others take it at the next start, from the settings screen
     if (!strcmp(env, "DM_FPS_TARGET")) { if (!dm_fps_target_live()) return false; if (value && dm_fps_target_set(atoi(value))) LOG("front end: frame rate %s fps (in-game menu)", value); return true; }
+    // Upscaling in the present and the game's upscaler: at once on a GPU with MetalFX's spatial scaler (nvn_mtl.m dm_present_upscale_set from the next present, dm_upscaler_set from the
+    // next frame, the latter in a game whose shader map names upscaler shaders)
+    if (!strcmp(env, "DM_PRESENT_UPSCALE")) { if (dm_present_upscale_live() < 0) return false; if (value && dm_present_upscale_set(value)) LOG("front end: upscaling %s (in-game menu)", value); return true; }
+    if (!strcmp(env, "DM_UPSCALER")) { if (dm_upscaler_live() < 0) return false; if (value && dm_upscaler_set(value)) LOG("front end: game's upscaler %s (in-game menu)", value); return true; }
     return false;
 }
 @interface DmTVSceneDelegate : UIResponder <UIWindowSceneDelegate>
