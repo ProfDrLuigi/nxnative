@@ -91,6 +91,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
 	$(B)/t_haptics_apple
 	$(B)/t_front_role
 	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
+	$(B)/t_exefs
 	$(B)/t_nro
 	$(B)/t_symbols
 	$(B)/t_gates
@@ -149,6 +150,10 @@ nro: $(B)/t_nro
 # the cheat engine (hle_cheats.c, compiled into the test with stubs for the loader, the heap and the keys)
 $(B)/t_cheats: t_cheats.c ../hle_cheats.c ../code_write.h ../dm.h ../dm_input.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_cheats.c
+# the exefs patch formats of mods (hle_exefs.c's parsers: IPS, IPS32, pchtxt, build ID names)
+run: $(B)/t_exefs
+$(B)/t_exefs: t_exefs.c ../hle_exefs.c ../dm.h $(GAME_H) | $(B)
+	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_exefs.c
 .PHONY: cheats
 cheats: $(B)/t_cheats
 	TMPDIR="$(abspath $(B))" $(B)/t_cheats
