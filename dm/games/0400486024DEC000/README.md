@@ -556,3 +556,7 @@ The integrated prewarm list includes the compatible rows from [PR #3195](https:/
 ### HDR display support
 
 The integration includes [native Switch 2 HDR](../../../docs/reference/rendering.md#a-switch-2-games-own-hdr-on-a-screen-with-hdr-on) and [auto-HDR](../../../docs/reference/rendering.md#auto-hdr-on-a-screen-with-hdr-on) from [PR #3183](https://github.com/seedds/nxnative/pull/3183), including its [PR #3155](https://github.com/seedds/nxnative/pull/3155) dependency. Local rebuilt-app validation is pending.
+
+### Refreshed Mac launcher
+
+The integration preserves the tested [shared input profiles and live settings](../../../docs/reference/services.md#shared-mac-input-profiles-and-live-settings), including radial dead zone, sensitivity, button mapping and separate app/game versions. The refreshed release retains app version 1.0.3 and game version 1.1.1. Runtime validation is pending the new shader library.

@@ -6,6 +6,8 @@
 // (the previous run's kept as <title ID>.prev.log). Environment switches: one KEY=VALUE per line in <Application Support folder>/env.txt, then Resources/dm/env.txt (the first one wins; neither
 // replaces a variable already set), as the iOS app reads Documents/env.txt and dm/env.txt. Then the player's saved choices: launcher.<VAR> strings in the app's preferences domain (its bundle ID), which a
 // front end or a settings window writes, each checked against the bundle's settings (Info.plist DMSettings, from launcher.json) and used only for a variable still unset; DM_SAVED_CHOICES=0 ignores them.
+// DM_KEYMAP and DM_PAD_MAP are saved choices too (launcher.DM_KEYMAP, launcher.DM_PAD_MAP) but no launcher.json rows, so DMSettings cannot check them: the host's own parser does (dm/host/input_map.h,
+// keymap.h for keyboard maps; input_map.h for controller maps), and a value it would not take whole is ignored. They are read whether or not the settings window ran, and so is the controls profile (controls_profile below) the window's Input tab edits.
 // So the order is: the launch environment, the player's env.txt, the bundle's, saved choices, the host's tested defaults (docs/frontends.md, Saved choices).
 // Before the host starts, the settings window (dm/mac/Launcher.swift dm_mac_launcher, linked in by pack_app.py) runs in this process and puts the player's settings into the environment; it keeps
 // what the launch environment and the env files set (DM_ENV_LAUNCH_KEYS, DM_ENV_FILE_KEYS). DM_LAUNCHER=0 or --no-launcher (open <app> --args --no-launcher) starts the game without the window,
@@ -26,10 +28,17 @@
 #include <unistd.h>
 #include "romfs_image.h"
 #include "save_sync.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"   // the header is the host's: this file uses only its checks (input_map_valid, stick_*_valid)
+#include "input_map.h"
+#pragma clang diagnostic pop
+#include "keymap.h"
 
 extern char **environ;
 int dm_mac_launcher(void);   // Launcher.swift: 1 = Play (the settings are in the environment), 0 = the player quit, 2 = no window (apply the saved choices here)
 int dm_mac_microphone_consent(void);
+int dm_mac_settings_available(void);   // Launcher.swift: 1 = the settings window can be shown while the game runs
+int dm_mac_launcher_wait(pid_t pid);   // Launcher.swift: waits for the host with the run loop that shows it (the game's Settings…); waitpid's status, -1 on failure
 static pid_t g_child;
 static char *g_file_keys, *g_launch_keys;   // the variables the env files set, and the settings the launch environment set (DM_ENV_FILE_KEYS, DM_ENV_LAUNCH_KEYS)
 
@@ -116,12 +125,56 @@ static int rule_env(CFTypeRef rule, char *env, size_t n) {   // a rule's variabl
     return e && CFGetTypeID(e) == CFStringGetTypeID() && CFStringGetCString(e, env, (CFIndex)n, kCFStringEncodingUTF8);
 }
 
-static void saved_choices(void) {   // after the env files, before the bundle's own defaults (DM_LANG): a variable already set keeps its value
+static void saved_control(CFStringRef domain, const char *env, int pad) {   // DM_KEYMAP / DM_PAD_MAP: checked by the host's parser, not by DMSettings
+    CFStringRef key = CFStringCreateWithFormat(NULL, NULL, CFSTR("launcher.%s"), env);
+    CFPropertyListRef v = CFPreferencesCopyAppValue(key, domain); CFRelease(key);
+    if (!v) return;
+    char s[1024];
+    if (CFGetTypeID(v) != CFStringGetTypeID() || !CFStringGetCString(v, s, sizeof s, kCFStringEncodingUTF8)) fprintf(stderr, "launcher: saved choice for %s ignored: not a string of at most %zu bytes\n", env, sizeof s - 1);
+    else if (!input_map_valid(s, pad)) fprintf(stderr, "launcher: saved choice %s=%s ignored: the host does not take it\n", env, s);
+    else if (getenv(env)) fprintf(stderr, "launcher: saved choice %s=%s not used: %s=%s is set (environment or env.txt)\n", env, s, env, getenv(env));
+    else { setenv(env, s, 0); fprintf(stderr, "launcher: env %s=%s (saved choice)\n", env, s); }
+    CFRelease(v);
+}
+
+// The controls profile: ~/Library/Application Support/nxnative/controls/<name>.txt, the one this game picked in the settings window's Input tab (controls.profile in the app's
+// preferences), else Default.txt, which every game shares. KEY=VALUE lines of DM_KEYMAP, DM_PAD_MAP, DM_PAD_ABXY, DM_PAD_STICK_DZ, DM_PAD_STICK_SENS, each checked by the host's parser (input_map.h);
+// a variable already set (the environment, an env file, a launcher.<VAR> saved choice) keeps its value. No file: the host's own mapping
+static const char *const controls[] = {"DM_KEYMAP", "DM_PAD_MAP", "DM_PAD_STICK_DZ", "DM_PAD_STICK_SENS", "DM_PAD_ABXY"};
+enum { NCONTROLS = sizeof controls / sizeof *controls };
+static int keymap_valid(const char *s) { keymap m; return !km_parse(&m, s, NULL, 0); }
+static void controls_profile(CFStringRef domain, const char *home) {
+    char name[128] = "Default", path[PATH_MAX];
+    CFPropertyListRef v = CFPreferencesCopyAppValue(CFSTR("controls.profile"), domain);
+    if (v && CFGetTypeID(v) == CFStringGetTypeID()) CFStringGetCString(v, name, sizeof name, kCFStringEncodingUTF8);
+    if (v) CFRelease(v);
+    if (!*name || strchr(name, '/') || *name == '.') { fprintf(stderr, "launcher: controls profile name '%s' ignored, Default used\n", name); snprintf(name, sizeof name, "Default"); }
+    snprintf(path, sizeof path, "%s/Library/Application Support/nxnative/controls/%s.txt", home, name);
+    FILE *f = fopen(path, "r");
+    if (!f) { fprintf(stderr, "launcher: no controls profile %s (%s): the host's own mapping\n", name, path); return; }
+    char ln[KM_FORMAT_MAX + 64];
+    while (fgets(ln, sizeof ln, f)) {
+        ln[strcspn(ln, "\r\n")] = 0;
+        char *eq = strchr(ln, '='); if (*ln == '#' || !eq) continue;
+        *eq = 0; const char *k = ln, *s = eq + 1; int i = 0;
+        while (i < NCONTROLS && strcmp(k, controls[i])) i++;
+        if (i == NCONTROLS) { fprintf(stderr, "launcher: controls profile %s: %s is not a control, ignored\n", name, k); continue; }
+        int ok = i == 0 ? keymap_valid(s) : i == 1 ? input_map_valid(s, 1) : i == 2 ? stick_dz_valid(s) : i == 3 ? stick_sens_valid(s) : pad_abxy_valid(s);
+        if (!ok) fprintf(stderr, "launcher: controls profile %s: %s=%s ignored: the host does not take it\n", name, k, s);
+        else if (getenv(k)) fprintf(stderr, "launcher: controls profile %s: %s=%s not used: %s=%s is set\n", name, k, s, k, getenv(k));
+        else { setenv(k, s, 0); fprintf(stderr, "launcher: env %s=%s (controls profile %s)\n", k, s, name); }
+    }
+    fclose(f);
+}
+
+static void saved_keymap(void);
+
+static void saved_choices(int window) {   // after the env files, before the bundle's own defaults (DM_LANG): a variable already set keeps its value. window: the settings window ran and applied its own settings
     CFArrayRef rules = setting_rules(); CFStringRef domain = CFBundleGetIdentifier(CFBundleGetMainBundle());
-    if (!rules || !domain) return;   // packed without launcher settings: nothing to choose
+    if (!domain) return;
     const char *off = getenv("DM_SAVED_CHOICES");
     if (off && !strcmp(off, "0")) { fprintf(stderr, "launcher: saved choices ignored (DM_SAVED_CHOICES=0)\n"); return; }
-    for (CFIndex i = 0; i < CFArrayGetCount(rules); i++) {
+    for (CFIndex i = 0; rules && !window && i < CFArrayGetCount(rules); i++) {   // packed without launcher settings: nothing of these to choose
         CFTypeRef rule = CFArrayGetValueAtIndex(rules, i); char env[128], s[256];
         if (!rule_env(rule, env, sizeof env)) continue;
         CFStringRef key = CFStringCreateWithFormat(NULL, NULL, CFSTR("launcher.%s"), env);
@@ -133,6 +186,8 @@ static void saved_choices(void) {   // after the env files, before the bundle's 
         else { setenv(env, s, 0); fprintf(stderr, "launcher: env %s=%s (saved choice)\n", env, s); }
         CFRelease(v);
     }
+    saved_keymap(); saved_control(domain, "DM_PAD_MAP", 1);
+    const char *home = getenv("HOME"); if (home && *home) controls_profile(domain, home);
 }
 
 // Cloud saves: the folder chosen in the settings window (Launcher.swift CloudSavesSection, cloudSaves.folder in the app's preferences) becomes DM_SAVE_SYNC
@@ -167,6 +222,66 @@ static void microphone_at_launch(void) {
     if (value) CFRelease(value);
 }
 
+// The keyboard map: a saved choice as the others (launcher.DM_KEYMAP in the app's preferences, keymap.h's full form, written by the settings window's Keyboard section and the
+// in-game Keyboard Map panel), in the same order and with DM_SAVED_CHOICES=0. It has no launcher.json row, so DMSettings cannot check it: the host's own parser does, and a value
+// it would not take whole is ignored. Read whether or not the settings window ran, since the window applies only launcher.json's settings
+static void saved_keymap(void) {
+    CFStringRef domain = CFBundleGetIdentifier(CFBundleGetMainBundle());
+    const char *off = getenv("DM_SAVED_CHOICES");
+    if (!domain || (off && !strcmp(off, "0"))) return;
+    CFPropertyListRef v = CFPreferencesCopyAppValue(CFSTR("launcher.DM_KEYMAP"), domain); static char s[KM_FORMAT_MAX]; keymap m;
+    if (!v) return;
+    if (CFGetTypeID(v) != CFStringGetTypeID() || !CFStringGetCString(v, s, sizeof s, kCFStringEncodingUTF8)) fprintf(stderr, "launcher: saved choice for DM_KEYMAP ignored: not a string of at most %zu bytes\n", sizeof s - 1);
+    else if (km_parse(&m, s, NULL, 0)) fprintf(stderr, "launcher: saved choice DM_KEYMAP=%s ignored: the host does not take it\n", s);
+    else if (getenv("DM_KEYMAP")) fprintf(stderr, "launcher: saved choice DM_KEYMAP=%s not used: DM_KEYMAP=%s is set (environment or env.txt)\n", s, getenv("DM_KEYMAP"));
+    else { setenv("DM_KEYMAP", s, 0); fprintf(stderr, "launcher: env DM_KEYMAP=%s (saved choice)\n", s); }
+    CFRelease(v);
+}
+
+// keymap.h for the settings window (Launcher.swift imports no C header: @_silgen_name): the targets, the bindings' labels, and a map read and written as KM_SLOTS targets by binding
+// (mouse buttons from key code 128) with the mouse's settings, KM_OUTS of each: the outputs' sources (KM_SRC_OFF, KM_SRC_MOUSE or a key code), speeds and inverts
+int dm_km_groups(void) { return KM_NGROUPS; }   // the sheet's groups, as the panel's and the keymap files' (km_groups)
+const char *dm_km_group_title(int g) { return g >= 0 && g < KM_NGROUPS ? km_groups[g].title : ""; }
+int dm_km_group_size(int g) { return g >= 0 && g < KM_NGROUPS ? km_groups[g].n : 0; }
+int dm_km_group_target(int g, int i) { return g >= 0 && g < KM_NGROUPS && i >= 0 && i < km_groups[g].n ? km_groups[g].targets[i] : -1; }
+int dm_km_slot(int code, int mods) { return km_layer(mods) * KM_KEYS + code; }   // a key pressed with mods (KM_MOD_*: 1 Shift, 2 Control, 4 Option) as a binding, as the panel binds it
+const char *dm_km_target_label(int t) { return t >= 0 && t < KM_N ? km_targets[t].label : ""; }
+int dm_km_slots(void) { return KM_SLOTS; }
+int dm_km_keys(void) { return KM_KEYS; }
+const char *dm_km_slot_label(int slot) { static char b[64]; return km_slot_label(slot, b, sizeof b); }
+int dm_km_bindable(int slot) { return km_slot_bindable(slot); }
+static keymap km_of(const uint8_t *key, const int *src, const float *speed, const int *invert) {
+    keymap m; memcpy(m.key, key, KM_SLOTS); memcpy(m.mouse_src, src, sizeof m.mouse_src); memcpy(m.mouse_speed, speed, sizeof m.mouse_speed); memcpy(m.mouse_invert, invert, sizeof m.mouse_invert); return m;
+}
+int dm_km_read(const char *map, uint8_t *key, int *src, float *speed, int *invert) {   // key: KM_SLOTS bytes
+    keymap m; int bad = km_parse(&m, map ? map : "", NULL, 0); memcpy(key, m.key, KM_SLOTS);
+    memcpy(src, m.mouse_src, sizeof m.mouse_src); memcpy(speed, m.mouse_speed, sizeof m.mouse_speed); memcpy(invert, m.mouse_invert, sizeof m.mouse_invert); return bad;
+}
+int dm_km_format_max(void) { return KM_FORMAT_MAX; }
+int dm_km_bind(uint8_t *key, int target, int slot, int add) {   // the binding presses target (slot -1: target loses all; add: it keeps its others); the target the binding had, -1 none
+    keymap m; memcpy(m.key, key, KM_SLOTS); int was = slot >= 0 && slot < KM_SLOTS && m.key[slot] != KM_NONE && m.key[slot] != target ? m.key[slot] : -1;
+    if (!add || slot < 0) km_bind(&m, target, -1);
+    if (slot >= 0) km_bind(&m, target, slot);
+    memcpy(key, m.key, KM_SLOTS); return was;
+}
+int dm_km_write(const uint8_t *key, const int *src, const float *speed, const int *invert, char *out, size_t n) { keymap m = km_of(key, src, speed, invert); return km_format(&m, out, n); }
+int dm_km_outs(void) { return KM_OUTS; }
+const char *dm_km_out_label(int o) { return o >= 0 && o < KM_OUTS ? km_out_labels[o] : ""; }
+int dm_km_src_off(void) { return KM_SRC_OFF; }
+int dm_km_src_mouse(void) { return KM_SRC_MOUSE; }
+int dm_km_mouse_key(int button) { return button >= 0 && button < KM_MOUSE_N ? KM_MOUSE + button : -1; }   // a mouse button's key code (NSEvent buttonNumber), -1 none
+const char *dm_km_src_label(int src) { static char b[64]; return km_src_label(src, b, sizeof b); }
+void dm_km_mouse_set(int *src, int out, int v) { keymap m; memcpy(m.mouse_src, src, sizeof m.mouse_src); km_mouse_set(&m, out, v); memcpy(src, m.mouse_src, sizeof m.mouse_src); }   // keymap.h km_mouse_set
+static km_preset g_presets[KM_MAX_PRESETS]; static int g_npresets;   // Default and the keymap files (keymap.h), as the last dm_km_presets_load found them
+int dm_km_presets_load(void) {
+    char err[2048]; g_npresets = km_presets_load(g_presets, KM_MAX_PRESETS, err, sizeof err);
+    if (*err) fprintf(stderr, "[RED] launcher: keymap files: lines skipped: %s\n", err);
+    return g_npresets;
+}
+const char *dm_km_preset_name(int i) { return i >= 0 && i < g_npresets ? g_presets[i].name : ""; }
+const char *dm_km_preset_map(int i) { return i >= 0 && i < g_npresets ? g_presets[i].map : ""; }
+int dm_km_preset_save(const uint8_t *key, const int *src, const float *speed, const int *invert, const char *name, char *path, size_t n) { keymap m = km_of(key, src, speed, invert); return km_preset_save(&m, name, path, n); }
+const char *dm_km_preset_dir(void) { static char d[1024]; return km_preset_dir(d, sizeof d) ? d : ""; }
 // A game of several programs (Super Mario 3D All-Stars): pack_app.py's table of them, with this app's paths filled in (it may move), for oe::ExecuteProgram (DM_PROGRAMS, hle_oe.c)
 static void programs_table(const char *contents, const char *res, const char *sup) {
     char in[PATH_MAX], out[PATH_MAX]; snprintf(in, sizeof in, "%s/dm/programs.tsv", res); snprintf(out, sizeof out, "%s/programs.tsv", sup);
@@ -215,6 +330,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "launcher: %s (%s), host %s\n", name, id, host);
     CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
     for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
+    for (int i = 0; i < NCONTROLS; i++) if (getenv(controls[i])) add_key(&g_launch_keys, controls[i]);   // the controls too: the Input tab shows them fixed, also once the profile is in the environment
     snprintf(p, sizeof p, "%s/env.txt", sup); env_file(p);
     snprintf(p, sizeof p, "%s/env.txt", dm); env_file(p);
     setenv("DM_ENV_FILE_KEYS", g_file_keys ? g_file_keys : "", 1); setenv("DM_ENV_LAUNCH_KEYS", g_launch_keys ? g_launch_keys : "", 1);
@@ -225,7 +341,7 @@ int main(int argc, char **argv) {
     if (!window) fprintf(stderr, "launcher: no settings window (DM_LAUNCHER=0 or --no-launcher)\n");
     int shown = window ? dm_mac_launcher() : 2;
     if (!shown) return 0;   // Quit: no game
-    if (shown == 2) saved_choices();
+    saved_choices(shown == 1);   // the window applied its settings; the controls are not among them
     cloud_saves_folder();
     microphone_at_launch();
     setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_TEMP", temp, 0);
@@ -251,11 +367,15 @@ int main(int argc, char **argv) {
     struct sigaction sa = {.sa_handler = forward};   // no SA_RESTART: waitpid below sees EINTR and waits again
     sigemptyset(&sa.sa_mask);
     sigaction(SIGTERM, &sa, NULL); sigaction(SIGINT, &sa, NULL); sigaction(SIGHUP, &sa, NULL);
+    // The game's Settings… (dm/host/front_mac.m) asks this process for the settings window: DM_SETTINGS_PID names it, and the wait runs with the window's run loop
+    int live = dm_mac_settings_available();
+    if (live) { snprintf(p, sizeof p, "%d", (int)getpid()); setenv("DM_SETTINGS_PID", p, 1); }
     char *host_argv[] = {host, dm, NULL};
     int err = posix_spawn(&g_child, host, NULL, NULL, host_argv, environ);
     if (err) { fprintf(stderr, "[RED] launcher: cannot start %s: %s\n", host, strerror(err)); return 1; }
     int status;
-    while (waitpid(g_child, &status, 0) < 0) if (errno != EINTR) return 1;
+    if (live) { if ((status = dm_mac_launcher_wait(g_child)) == -1) return 1; }
+    else while (waitpid(g_child, &status, 0) < 0) if (errno != EINTR) return 1;
     // Cloud saves (DM_SAVE_SYNC, dm/host/save_sync.h): what the host committed and had not sent yet goes now, after a crash too (the committed save is whole whatever the host was doing)
     // DM_SAVE as the host had it: an env file or the launch environment may have set another folder than this app's own
     if (!save_sync_after_exit(getenv("DM_SAVE"), id)) fprintf(stderr, "launcher: the save did not reach the cloud; it goes at the next start\n");

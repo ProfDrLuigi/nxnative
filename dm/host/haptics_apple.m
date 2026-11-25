@@ -722,13 +722,20 @@ static void suspend(unsigned reason, BOOL on) {
 void dm_haptics_apple_shutdown(void) {
     if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
 }
+void dm_haptics_apple_tune(float g, float m) {
+    if (!queue) return;
+    dispatch_async(queue, ^{
+        if (g >= 0 && isfinite(g)) gain = fminf(25, g);
+        if (m >= 0 && isfinite(m)) rumble_min = fminf(0.9f, m);
+    });
+}
 void dm_haptics_apple_init(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         queue = dispatch_queue_create("dm.rumble", DISPATCH_QUEUE_SERIAL);
         dispatch_queue_set_specific(queue, &queue, &queue, NULL);
         const char *e = getenv("DM_RUMBLE_GAIN");
-        if (e) { float v = strtof(e, NULL); if (isfinite(v)) gain = fmaxf(0, fminf(3, v)); }
+        if (e) { float v = strtof(e, NULL); if (isfinite(v)) gain = fmaxf(0, fminf(25, v)); }
         e = getenv("DM_RUMBLE_MIN");
         if (e) { float v = strtof(e, NULL); if (isfinite(v)) rumble_min = fmaxf(0, fminf(0.9f, v)); }
         e = getenv("DM_RUMBLE");

@@ -1943,3 +1943,10 @@ Most service calls can be found before they crash, before the first boot or the 
 - **Fix:** both language-list fallbacks use 15 entries for known SDK majors 1-3. SDK 4 and later, and an unknown SDK, retain the existing extended fallback. The original code order, Chinese comparison aliases and LanguageCode::Make are unchanged.
 - **Found on:** Xenoblade Chronicles 2, Japanese release 2.0.2, during bring-up with a provisional profile. A diagnostic boot with the correction reached the language-selection screen and 900 frames in 40 seconds; gameplay remains unverified.
 - **Check:** `t_language.c` tests old SDKs, modern and unknown SDKs, code order, short and empty buffers and untouched buffer tails under AddressSanitizer and UndefinedBehaviorSanitizer (1,086 checks).
+
+### Shared Mac input profiles and live settings
+
+- **Symptom:** a controller needs a radial dead zone, sensitivity adjustment or remapped buttons, and the player wants the same input profile across games.
+- **Cause:** game launch settings alone do not describe a reusable physical-controller or keyboard layout.
+- **Fix:** the Mac launcher's Input tab stores named profiles under the user's nxnative controls directory. The host applies validated button maps and radial stick shaping to controller events; keyboard maps also support mouse bindings. Launch environment and env.txt overrides retain precedence. Settings opened with Command-comma can update supported controls, rumble strength/cutoff, fullscreen, late-frame holding and present upscaling while the game runs. The launcher reports other changes as applying at the next start. Rumble strength accepts up to 25 for games whose effects have very low amplitudes. App bundle releases are displayed separately from game display versions.
+- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md); ported from the user's tested Ocarina/Hotshot launcher. Controller parser tests, a macOS 26.6 launcher compile/link and the rebuilt host pass; interactive testing of the refreshed app remains pending its shader rebuild.

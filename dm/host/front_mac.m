@@ -5,7 +5,8 @@
 // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
 // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
 // safe mode, values, details and the import of cheat files (see the code below).
-// Key map (Nintendo layout): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
+// Key map (Nintendo layout, keymap.h KM_DEFAULT): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
+// DM_KEYMAP changes it (keyboard_mac.h, keymap.h), as do the settings window's Keyboard section and the in-game Window › Keyboard Map… panel; Shift, Control and Option can be keys of it too.
 // Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
 // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
 // DM_PAD_MERGE=1 merges every controller into player 1 instead, DM_KBD_PLAYER=own makes the keyboard player 1 on its own, with the controllers from player 2 on.
@@ -19,6 +20,7 @@
 #include "front.h"
 #include "hle.h"
 #include "pad_slots.h"
+#include "input_map.h"
 #include "haptics_apple.h"
 #include "motion_apple.h"
 #include "motion_pro_mac.h"
@@ -40,9 +42,6 @@ static void merge_rumble_to(void (*sink)(const dm_haptic_state *));
 #include <sys/stat.h>
 
 static CAMetalLayer *g_layer;
-static uint64_t g_btn;
-static int g_w, g_a, g_s, g_d;
-static int g_rl, g_ru, g_rr, g_rd;   // arrow keys pressed with Shift held: the right stick (each goes back up as it went down, whatever Shift does meanwhile)
 static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
 
 void *front_metal_layer(void) { return (__bridge void *)g_layer; }
@@ -261,21 +260,6 @@ static void cursor_hide_for_input(void) {
     NSView *v = g_win.contentView;
     if (NSPointInRect([v convertPoint:g_win.mouseLocationOutsideOfEventStream fromView:nil], v.bounds)) [NSCursor setHiddenUntilMouseMoves:YES];
 }
-static void push(void) {
-    int32_t lx = (g_d - g_a) * 32767, ly = (g_w - g_s) * 32767;
-    int32_t rx = (g_rr - g_rl) * 32767, ry = (g_ru - g_rd) * 32767;
-    dm_input_set(g_btn, lx, ly, rx, ry);
-}
-static int key_bit(unsigned short code) {
-    switch (code) {
-        case 38: return 0;  case 40: return 1;  case 32: return 2;  case 34: return 3;    // J K U I → A B X Y
-        case 3: return 4;   case 5: return 5;                                            // F G → press stick
-        case 12: return 6;  case 14: return 7;  case 6: return 8;   case 8: return 9;    // Q E Z C → L R ZL ZR
-        case 36: return 10; case 48: return 11;                                          // Return Tab → + −
-        case 123: return 12; case 126: return 13; case 124: return 14; case 125: return 15; // ← ↑ → ↓
-    }
-    return -1;
-}
 // fn held with a letter: the arrow and function keys carry the same modifier flag, so the key must be a letter for this to be a Globe shortcut
 static int fn_shortcut(NSEvent *e) {
     NSString *s = e.charactersIgnoringModifiers;
@@ -283,24 +267,7 @@ static int fn_shortcut(NSEvent *e) {
 }
 static ctrl_prompt g_cp; static int g_cp_confirm, g_cp_cancel;   // the controller applet's prompt (front_ctrl_support) and a key pressed in it since its last step
 static int cp_poll(void);
-static void on_key(NSEvent *e, int down) {
-    if (!g_input_on) return;
-    unsigned short c = e.keyCode;
-    if (cp_blocks_input(g_cp.phase)) {   // the prompt has the keyboard: Return or J (A) is done, Escape or K (B) closes it, no key reaches the game
-        if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; cp_poll(); }
-        return;
-    }
-    switch (c) { case 13: g_w = down; break; case 0: g_a = down; break; case 1: g_s = down; break; case 2: g_d = down; break; }
-    // An arrow key pressed with Shift held is the right stick until it is released; without Shift, the D-pad. The keyboard had no right stick: a 3D game's camera
-    // could be turned only with a controller (Donkey Kong Bananza)
-    int *rs = c == 123 ? &g_rl : c == 126 ? &g_ru : c == 124 ? &g_rr : c == 125 ? &g_rd : NULL;
-    if (rs && (down ? (e.modifierFlags & NSEventModifierFlagShift) != 0 : *rs)) { *rs = down; push(); return; }
-    int b = key_bit(c);
-    uint64_t m = b >= 0 ? 1ull << b : c == 49 ? DM_BTN_SHAKE : 0;   // Space: shaken while held
-    g_btn = down ? (g_btn | m) : (g_btn & ~m);
-    if (down && (m || c == 13 || c == 0 || c == 1 || c == 2)) cursor_hide_for_input();   // a key the game takes (WASD: the left stick)
-    push();
-}
+#include "keyboard_mac.h"   // the keyboard: its map (keymap.h), the Keyboard Map panel; kb_key, kb_start, keys_release
 
 // Physical controllers (GameController) go to dm_pad_set_player, mapped as the iPhone's (DmGamepad.m read_pad, same layout); player 1's is ORed with the keyboard, a stick takes
 // whichever is deflected more (hle_hid.c). DM_KEYS uses player 1's path, so player 1's controller touched during a script takes it over.
@@ -310,9 +277,18 @@ static void on_key(NSEvent *e, int down) {
 static pad_slots g_slots;
 static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
 static int g_merge, g_kbd_own;
+static pad_map g_padmap;   // DM_PAD_MAP (input_map.h): what each button sends, applied to every controller
+static stick_shape g_stick;   // DM_PAD_STICK_DZ, DM_PAD_STICK_SENS (input_map.h): both sticks of every controller
+static int g_abxy;   // DM_PAD_ABXY (input_map.h): how every controller's face buttons are read, IM_ABXY_AUTO unless set
 static int32_t pad_axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * DM_STICK_MAX); }
-// A controller's state for player p, GameController or raw HID: a pressed button or a stick past 15% hides the pointer (cursor_hide_for_input), a resting stick's drift does not
+// A controller's state for player p, GameController or raw HID: DM_PAD_MAP and the stick shape apply here to both; a pressed button or a stick past 15% hides the pointer (cursor_hide_for_input), a resting stick's drift does not
 static void pad_set(int p, uint64_t m, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
+    m = pad_map_apply(&g_padmap, m);
+    if (!stick_shape_is_default(&g_stick)) {   // unset: the axes as they came
+        float s[4] = {(float)lx / DM_STICK_MAX, (float)ly / DM_STICK_MAX, (float)rx / DM_STICK_MAX, (float)ry / DM_STICK_MAX};
+        stick_shape_apply(&g_stick, &s[0], &s[1]); stick_shape_apply(&g_stick, &s[2], &s[3]);
+        lx = pad_axis(s[0]); ly = pad_axis(s[1]); rx = pad_axis(s[2]); ry = pad_axis(s[3]);
+    }
     const int32_t dead = DM_STICK_MAX * 15 / 100;
     if (m || abs(lx) > dead || abs(ly) > dead || abs(rx) > dead || abs(ry) > dead) cursor_hide_for_input();
     dm_pad_set_player(p, m, lx, ly, rx, ry);
@@ -338,8 +314,8 @@ static void pad_read(GCExtendedGamepad *g) {
     if (!g_input_on) return;
     hq_poll(); if (hq_blocks_input(g_hq.phase)) return;
     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller);
-    if (p < 0 && (!g_press_to_join || pad_gc_unread(g.controller))) return;   // a controller read from its HID reports: GameController's controller of it stays unread
-    uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
+    if (p < 0 && (!g_press_to_join || pad_gc_unread(g.controller))) return;   // a model read from its HID reports: GameController's controller of it stays unread
+    uint64_t m = dm_pad_face_as(g, g_abxy == IM_ABXY_LABEL ? 1 : g_abxy == IM_ABXY_POSITION ? 0 : -1);   // auto: by position, a Nintendo pad by its labels
     #define K(btn, bit) if (btn.isPressed) m |= bit
     K(g.leftShoulder, DM_BTN_L); K(g.rightShoulder, DM_BTN_R);
     // Work around nonzero resting values (Xbox LT about 0.06 with isPressed true): digital Switch triggers actuate above 25% (PR #2504).
@@ -504,7 +480,7 @@ static void input_release(void) {
     g_input_on = 0;
     dm_motion_pro_active(0); hidpad_motion_clear();
     dm_switch2_active(0); dm_jc1_active(0);
-    g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
+    keys_release();
     if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
     pads_release();
 }
@@ -533,10 +509,12 @@ static void hidpad_show_player(hid_pad *d, int p, uint64_t m) {
 static void hidpad_read(hid_pad *d) {
     if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
     int p = hidpad_player(d), full = hidpad_full(d);
-    uint64_t m = full ? d->pro_m : pad_hid_buttons(&d->st);
+    uint64_t m = full ? d->pro_m : pad_hid_buttons_unmapped(&d->st);
     if (p < 0 && (!hidpad_first_press(d) || !m || (p = pad_join(d, d->name)) < 0)) return;   // joins at its first button
     hidpad_show_player(d, p, m);
     if (cp_poll()) return;   // the controller applet's prompt has the controllers
+    int nintendo = full || d->st.layout == PAD_HID_NINTENDO;   // Nintendo reports have label order; generic HID has position order
+    if ((nintendo && g_abxy == IM_ABXY_POSITION) || (!nintendo && g_abxy == IM_ABXY_LABEL)) m = pad_abxy_swap(m);
     if (full) { pad_set(p, m, d->pro_s[0], d->pro_s[1], d->pro_s[2], d->pro_s[3]); return; }
     int32_t s[4]; pad_hid_sticks(&d->st, s);
     pad_set(p, m, s[0], s[1], s[2], s[3]);
@@ -620,7 +598,7 @@ static void s2pad_read(s2_pad *d) {
     }
     if (cp_poll()) return;   // the controller applet's prompt has the controllers
     if (m) merge_rumble_to(dm_switch2_rumble);
-    pad_set(p, m, s[0], s[1], s[2], s[3]);
+    pad_set(p, g_abxy == IM_ABXY_POSITION ? pad_abxy_swap(m) : m, s[0], s[1], s[2], s[3]);   // by label, as GameController reads a Nintendo pad
 }
 static int s2pad_attach(s2_pad *d) {   // 1: kept (a player, or waiting for its first button press); 0: no free player (pad_switch2_apple.h)
     if (g_press_to_join && !g_merge) { LOG("controller '%s' (Bluetooth) connected: press a button to play (DM_PAD_PRESS_TO_JOIN)", d->name); cp_poll(); return 1; }
@@ -838,7 +816,7 @@ int front_ctrl_support(int min, int max) {
     if (!g_layer) return -1;
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_main_queue(), ^{
-        g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();   // nothing the game held stays pressed while the prompt has the input
+        keys_release();   // nothing the game held stays pressed while the prompt has the input
         if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
         pads_release();
         int a, b; cp_buttons(&a, &b);
@@ -849,7 +827,58 @@ int front_ctrl_support(int min, int max) {
     dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
     return g_cp_ok;
 }
+// Settings while the game runs: the app menu's Settings… (⌘,) asks the launcher (dm/mac/launcher.c, which sets DM_SETTINGS_PID; Launcher.swift dm_mac_launcher_wait) with SIGUSR1 to show
+// its settings window again. On Done the launcher writes the live settings the player changed as KEY=VALUE lines to $DM_ROOT/live.env and sends SIGUSR1 back; the others apply at the
+// next start. These keys and Launcher.swift's LiveSettings.keys are the same list (dm/tools/tests/test_nsp_mac_app.py). Runs on the main thread, as the key and controller handlers
+static pid_t g_settings_pid;
+static void live_settings_apply(void) {
+    const char *root = getenv("DM_ROOT"); char p[PATH_MAX], ln[KM_FORMAT_MAX + 64];
+    snprintf(p, sizeof p, "%s/live.env", root ? root : ".");
+    FILE *f = fopen(p, "r");
+    if (!f) { LOG("[RED] front end: Settings window: cannot read %s", p); return; }
+    while (fgets(ln, sizeof ln, f)) {
+        ln[strcspn(ln, "\r\n")] = 0;
+        char *eq = strchr(ln, '='); if (!eq) continue;
+        *eq = 0; const char *k = ln, *v = eq + 1; int bad = 0;
+        if (!strcmp(k, "DM_KEYMAP")) { keymap next; bad = km_parse(&next, v, NULL, 0); keys_release(); g_km = next; }
+        else if (!strcmp(k, "DM_PAD_MAP")) { pad_map_default(&g_padmap); bad = pad_map_parse(&g_padmap, v); }
+        else if (!strcmp(k, "DM_PAD_ABXY")) { int a = pad_abxy_parse(v); bad = a < 0; if (!bad) g_abxy = a; }
+        else if (!strcmp(k, "DM_PAD_STICK_DZ")) { g_stick.dz = 0; bad = stick_shape_parse(&g_stick, v, NULL); }
+        else if (!strcmp(k, "DM_PAD_STICK_SENS")) { g_stick.sens = 1; bad = stick_shape_parse(&g_stick, NULL, v); }
+        else if (!strcmp(k, "DM_RUMBLE_GAIN")) dm_haptics_apple_tune(strtof(v, NULL), -1);
+        else if (!strcmp(k, "DM_RUMBLE_MIN")) dm_haptics_apple_tune(-1, strtof(v, NULL));
+        else if (!strcmp(k, "DM_FPS_HOLD")) dm_gfx_fps_hold(strcmp(v, "off") != 0);
+        else if (!strcmp(k, "DM_PRESENT_UPSCALE")) dm_gfx_present_upscale(!strcmp(v, "metalfx") || !strcmp(v, "1"));
+        else if (!strcmp(k, "DM_FULLSCREEN")) { if ((strcmp(v, "0") != 0) != g_fullscreen) [g_win toggleFullScreen:nil]; }
+        else { LOG("[RED] front end: Settings window: %s cannot change while the game runs, ignored", k); continue; }
+        LOG("front end: %s=%s (Settings window)%s", k, v, bad ? ", malformed entries left out" : "");
+    }
+    fclose(f);
+}
+@interface DmSettingsItem : NSObject
+@end
+@implementation DmSettingsItem
+- (void)open:(id)sender {
+    (void)sender;
+    NSRunningApplication *l = [NSRunningApplication runningApplicationWithProcessIdentifier:g_settings_pid];
+    if (l) [NSApp yieldActivationToApplication:l];   // macOS lets the launcher take the front only when the active app yields it
+    if (kill(g_settings_pid, SIGUSR1)) LOG("[RED] front end: Settings window: the launcher (pid %d) is gone", (int)g_settings_pid);
+}
+@end
 static void pads_start(void) {
+    pad_map_default(&g_padmap);
+    const char *pm = getenv("DM_PAD_MAP");
+    if (pm && *pm) { int bad = pad_map_parse(&g_padmap, pm); LOG("front end: controller buttons from DM_PAD_MAP (%s)%s", pm, bad ? ", malformed entries left out" : ""); }
+    stick_shape_default(&g_stick);
+    const char *dz = getenv("DM_PAD_STICK_DZ"), *sens = getenv("DM_PAD_STICK_SENS");
+    if ((dz && *dz) || (sens && *sens)) {
+        int bad = stick_shape_parse(&g_stick, dz, sens);
+        if (bad) LOG("[RED] front end: a value of DM_PAD_STICK_DZ (0 to 0.5) or DM_PAD_STICK_SENS (0.25 to 3) is malformed or out of range, left out");
+        LOG("front end: controller sticks: dead zone %.2f, sensitivity %.2f", g_stick.dz, g_stick.sens);
+    }
+    const char *ab = getenv("DM_PAD_ABXY"); g_abxy = pad_abxy_parse(ab);
+    if (g_abxy < 0) { LOG("[RED] front end: DM_PAD_ABXY=%s is not auto, label or position, auto used", ab); g_abxy = IM_ABXY_AUTO; }
+    else if (g_abxy) LOG("front end: every controller's face buttons by %s (DM_PAD_ABXY)", g_abxy == IM_ABXY_LABEL ? "label" : "position");
     const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
     e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
     e = getenv("DM_PAD_PRESS_TO_JOIN"); g_press_to_join = !g_merge && e && atoi(e);
@@ -1816,6 +1845,16 @@ void front_run(void (*guest)(void)) {
         // Main menu: AppKit runs ⌘ shortcuts only through menu items, so ⌘Q quits and ⌃⌘F toggles fullscreen from here (AppKit shows the item as Globe-F and keeps ⌃⌘F as a hidden twin)
         NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
         [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
+        const char *sp = getenv("DM_SETTINGS_PID"); g_settings_pid = sp ? (pid_t)atoi(sp) : 0;
+        if (g_settings_pid > 0 && g_settings_pid == getppid()) {   // started by a launcher that can show the settings window (not by a script)
+            static DmSettingsItem *target; target = [DmSettingsItem new];
+            [app addItemWithTitle:@"Settings…" action:@selector(open:) keyEquivalent:@","].target = target;
+            [app addItem:[NSMenuItem separatorItem]];
+            signal(SIGUSR1, SIG_IGN);
+            static dispatch_source_t back; back = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR1, 0, dispatch_get_main_queue());
+            dispatch_source_set_event_handler(back, ^{ live_settings_apply(); [NSApp activate]; [win makeKeyAndOrderFront:nil]; });
+            dispatch_resume(back);
+        }
         [app addItemWithTitle:[@"Quit " stringByAppendingString:@(DM_GAME_NAME)] action:@selector(terminate:) keyEquivalent:@"q"];
         // Cheats (hle_cheats.c): the rows rebuild on every open through the delegate, the same rows the file reload changes
         g_cheats_menu = [DmCheatsMenuDelegate new];
@@ -1867,11 +1906,12 @@ void front_run(void (*guest)(void)) {
                 if (conn) hq_log_setting(); }];
         dm_haptics_apple_init();
         pads_start();
+        kb_start(win);   // the keyboard map, Window › Keyboard Map…, the modifier keys (keyboard_mac.h)
         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
             if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
             if (e.type == NSEventTypeKeyDown && (e.modifierFlags & NSEventModifierFlagCommand)) return e;   // ⌘ shortcuts go to the menu; a key released while ⌘ is held still reaches the game, or it would stay pressed
             if (e.type == NSEventTypeKeyDown && fn_shortcut(e)) return e;   // fn (Globe) + a letter is the system's (fn+F full screen, GitHub issue #873), not the game's F
-            if (!e.isARepeat) on_key(e, e.type == NSEventTypeKeyDown);
+            kb_key(e);   // the keyboard map (keyboard_mac.h)
             return nil;   // Swallow it to avoid the system beep
         }];
         [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowWillCloseNotification object:win queue:nil
@@ -1960,7 +2000,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
     dispatch_sync(dispatch_get_main_queue(), ^{
         // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
         // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
-        g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
+        keys_release();
         dm_touch_set(NULL, 0);
         int min_chars = g_swkbd_min_chars > 0 ? g_swkbd_min_chars : 0;
         NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
